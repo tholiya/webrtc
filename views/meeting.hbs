@@ -1,0 +1,118 @@
+<label>/join/{{user.meetingId}}</label>
+<div class="card mt-5">
+    <div class="card-body">
+        <div class="row" id="videoContent">
+            <div class="col-lg-12">
+                <label>{{user.name}}</label>
+                <video id="localVideo" autoplay></video>
+            </div>
+            <div class="col-lg-12">
+                <video id="remoteVideo" autoplay></video>
+            </div>
+        </div>
+    </div>
+</div>
+<script>
+    //var conn = new WebSocket('rakesh.projectdemo.in/websockets');
+    var conn = new WebSocket('ws://localhost:3000/websockets');
+
+    conn.onopen = function () {
+        console.log("Connected to the signaling server");
+    };
+
+    conn.onmessage = function (msg) {
+        var data = JSON.parse(msg.data);
+        console.log(data)
+        switch (data.type) {
+            case "participant-join":
+                addParticipant()
+                break;
+            case "offer":
+                manageOffer(data.offer, data.name)
+                break;
+            case "answer":
+                handleAnswer(data.answer)
+                break;
+            case "candidate":
+                handleCandidate(data.candidate)
+                break;
+        }
+    }
+
+    setTimeout(function () {
+        conn.send(JSON.stringify({ type: "start", userId: '{{user._id}}' }));
+    }, 1500);
+
+    var yourConn;
+    var localVideo = document.querySelector('#localVideo');
+    var remoteVideo = document.querySelector('#remoteVideo');
+    navigator.webkitGetUserMedia({ video: true, audio: true }, function (myStream) {
+        //displaying local video stream on the page 
+        localVideo.srcObject = myStream;
+
+        var configuration = {
+            "iceServers": [{ "url": "stun:stun2.1.google.com:19302" }]
+        };
+
+        yourConn = new webkitRTCPeerConnection(configuration);
+
+        // setup stream listening 
+        yourConn.addStream(myStream);
+
+        //when a remote user adds stream to the peer connection, we display it 
+        yourConn.onaddstream = function (e) {
+            remoteVideo.srcObject = e.stream;
+        };
+
+        // Setup ice handling 
+        yourConn.onicecandidate = function (event) {
+            if (event.candidate) {
+                conn.send(JSON.stringify({ type: "candidate", meetingId: '{{user.meetingId}}', userId: '{{user._id}}', candidate: event.candidate }));
+            }
+        };
+    }, function (error) {
+        console.log(error);
+    });
+
+    function addParticipant() {
+        yourConn.createOffer(function (offer) {
+            console.log(offer);
+            conn.send(JSON.stringify({ type: "offer", meetingId: '{{user.meetingId}}', offer: offer }));
+            yourConn.setLocalDescription(offer);
+        }, function (error) {
+            alert("Error when creating an offer");
+        });
+    }
+
+
+    function manageOffer(offer, name) {
+        yourConn.setRemoteDescription(new RTCSessionDescription(offer));
+
+        //create an answer to an offer 
+        yourConn.createAnswer(function (answer) {
+            yourConn.setLocalDescription(answer);
+            conn.send(JSON.stringify({ type: "answer", meetingId: '{{user.meetingId}}', answer: answer }));
+
+        }, function (error) {
+            alert("Error when creating an answer");
+        });
+    }
+
+    function handleAnswer(answer) {
+        yourConn.setRemoteDescription(new RTCSessionDescription(answer));
+    }
+
+    function handleCandidate(candidate) {
+        yourConn.addIceCandidate(new RTCIceCandidate(candidate));
+    };
+
+
+</script>
+
+{{#if isParticipant}}
+<script>
+    setTimeout(function () {
+        conn.send(JSON.stringify({ type: "participant-join", meetingId: '{{user.meetingId}}' }));
+    }, 1500);
+</script>
+{{/if}}
