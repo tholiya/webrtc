@@ -1,0 +1,242 @@
+<label>/join/{{user.meetingId}}</label>
+<div class="card mt-5">
+	<div class="card-body">
+		<div class="row" id="videoContent">
+			<div class="col-lg-4">
+				<div>Name: {{user.name}}</div>
+				<video id="local{{user._id}}" width="100%" muted="muted" playsinline autoplay="true" allowfullscreen
+					showonhover></video>
+			</div>
+		</div>
+	</div>
+</div>
+<div class="card mt-5">
+	<div class="card-header">Controls</div>
+	<div class="card-body">
+		<button class="btn btn-info" data-mute="mute" id="mute-button">Mute</button>
+		<button class="btn btn-danger" id="hangup-button">Hangup</button>
+		<button class="btn btn-success" onclick="captureScreen()" id="screen-share-button">Screen Share</button>
+	</div>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+
+	let userId = "{{user._id}}";
+	let userName = "{{user.name}}"
+	let roomUsers = {};
+	let localStream = null;
+	let oldLocalStream = null;
+	let room = {
+		screenStream: null
+	}
+
+
+	
+	const socket = io({
+		query: {
+			userId: userId
+		}
+	});
+
+	socket.on("connect", () => {
+		console.log("socket connected");
+		socket.emit('login', userId, '{{user.meetingId}}', "{{user.name}}");
+
+	});
+
+	socket.on("newUser", (user) => {
+		roomUsers[user] = {
+			pc: "",
+			name: "",
+			stream: ""
+		};
+		console.log("new user make call ", user);
+		makeCall(user, true);
+	})
+
+	socket.on("existingUser", (users) => {
+		for (user in users) {
+			if (user !== userId) {
+				console.log("existingUser ", user)
+				roomUsers[user] = {
+					pc: "",
+					name: ""
+				};
+			}
+		}
+		playVideoFromCamera(userId)
+	});
+
+	async function playVideoFromCamera(user) {
+		try {
+			const constraints = { 'video': true, 'audio': true };
+			const stream = await navigator.mediaDevices.getUserMedia(constraints);
+			localStream = stream;
+			console.log("local stream ", user)
+			const videoElement = document.querySelector(`video#local${user}`);
+			videoElement.srcObject = stream;
+			for (to in roomUsers) {
+				console.log("make existing ", to);
+				makeCall(to);
+			}
+		} catch (error) {
+			console.error('Error opening video camera.', error);
+		}
+	}
+
+	async function makeCall(user, isNew = false) {
+		const configuration = { 'iceServers': [{ 'urls': 'stun:stun.l.google.com:19302' }] }
+		roomUsers[user].pc = new RTCPeerConnection(configuration);
+		console.log("PC generated ", user)
+		roomUsers[user].pc.addEventListener('icecandidate', event => {
+			if (event.candidate) {
+				console.log("send ice ", user)
+				socket.emit('ice', user, event.candidate);
+			}
+		});
+		roomUsers[user].pc.addEventListener('track', async (event) => {
+			console.log("remote stream ", user)
+			const [remoteStream] = event.streams;
+			roomUsers[user].stream = remoteStream;
+			updateVideo(user);
+		});
+		roomUsers[user].pc.addEventListener('connectionstatechange', event => {
+			if (roomUsers[user].pc.connectionState === 'connected') {
+				console.log("peer connection started")
+			}
+		});
+		localStream.getTracks().forEach(track => {
+			roomUsers[user].pc.addTrack(track, localStream);
+		});
+
+		if (!isNew) {
+			const offer = await roomUsers[user].pc.createOffer();
+			await roomUsers[user].pc.setLocalDescription(offer);
+			console.log("send offer ", user)
+			socket.emit('offer', user, offer);
+		}
+	}
+
+	socket.on('offer', async function (from, data, displayName) {
+		try {
+			if (room.screenStream != null) {
+				room.screenStream.getTracks().forEach(track => {
+					roomUsers[from].pc.addTrack(track, room.screenStream);
+				})
+			}
+			console.log("receive offer ", from)
+			roomUsers[from].name = displayName;
+			roomUsers[from].pc.setRemoteDescription(new RTCSessionDescription(data));
+			const answer = await roomUsers[from].pc.createAnswer();
+			await roomUsers[from].pc.setLocalDescription(answer);
+			console.log("send answer ", from)
+			socket.emit('answer', from, answer);
+		} catch (error) {
+			console.log("Error while receive offer ", error)
+		}
+	})
+
+	socket.on('answer', async function (from, data, displayName) {
+		try {
+			console.log("receive answer ", from)
+			console.log(roomUsers[from].pc);
+			roomUsers[from].name = displayName;
+			await roomUsers[from].pc.setRemoteDescription(new RTCSessionDescription(data));
+		} catch (error) {
+			console.log("Error while receive answer ", error)
+		}
+	});
+
+	socket.on('ice', async function (from, data) {
+		try {
+			await roomUsers[from].pc.addIceCandidate(data);
+		} catch (e) {
+			console.error('Error adding received ice candidate', e);
+		}
+	})
+
+	//start stream
+
+	function updateVideo(user) {
+		if ($(`#remote${user}`).length == 0) {
+			let html = `<div class="col-lg-4"><div>Name: ${roomUsers[user].name}</div><video id="remote${user}" width="100%" class="remote-video-layout" autoplay="true" allowfullscreen showonhover></video></div>`
+			$('#videoContent').append(html);
+		}
+		const videoTag = document.getElementById("remote" + user);
+		videoTag.srcObject = roomUsers[user].stream;
+	}
+
+
+	$("#mute-button").on("click", function () {
+		if ($(this).data('mute') == "mute") {
+			localStream.getAudioTracks()[0].enabled = false
+			$("#mute-button").data('mute', 'unmute')
+			$("#mute-button").text("Unmute")
+		} else {
+			localStream.getAudioTracks()[0].enabled = true
+			$("#mute-button").text("Mute")
+			$("#mute-button").data('mute', 'mute')
+		}
+	});
+
+	async function captureScreen() {
+		let mediaStream = null;
+
+		try {
+			/**
+			 * We are setting audio: false here because we don't want desktop audio,
+			 * we want audio from user's microphone
+			 * */
+			mediaStream = await navigator.mediaDevices.getDisplayMedia({
+				video: {
+					cursor: "always",
+					displaySurface: "monitor",
+					logicalSurface: false
+				},
+				audio: false
+			});
+			normalStream = await navigator.mediaDevices.getUserMedia({
+				video: {
+					width: 320,
+					height: 240,
+					frameRate: 30
+				},
+				audio: {
+					sampleSize: 16,
+					channelCount: 2,
+					echoCancellation: true
+				}
+			})
+			onMediaSuccessShare(mediaStream, normalStream)
+			//document.getElementById("local-video").srcObject = mediaStream;
+		} catch (ex) {
+			console.log(ex);
+		}
+	}
+
+
+	async function onMediaSuccessShare(stream, normalStream) {
+		let screenStream = room.screenStream;
+		room.screenStream = stream;
+		console.log("share screen", room.screenStream);
+
+		for (let user in roomUsers) {
+			if (screenStream) {
+				roomUsers[user].pc.removeStream(screenStream);
+			}
+			for (const track of room.screenStream.getVideoTracks()) {
+				roomUsers[user].pc.addTrack(track, room.screenStream);
+			}
+			for (const track of normalStream.getAudioTracks()) {
+				roomUsers[user].pc.addTrack(track, room.screenStream);
+			}
+
+			const offer = await roomUsers[user].pc.createOffer();
+			await roomUsers[user].pc.setLocalDescription(offer);
+			console.log("send screen offer ", user)
+			socket.emit('offer', user, offer);
+		}
+	}
+
+</script>

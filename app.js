@@ -26,6 +26,9 @@ app.use('/bcss',express.static(`${process.cwd()}/node_modules/bootstrap/dist/css
 
 app.use('/', indexRouter);
 app.use('/users', usersRouter);
+app.get('/favicon.ico',function(req, res, next){
+  res.send('ok')
+});
 
 // Catch 404 and forward to error handler
 app.use((req, res, next) => {

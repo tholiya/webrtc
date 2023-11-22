@@ -1,118 +1,429 @@
 <label>/join/{{user.meetingId}}</label>
 <div class="card mt-5">
-    <div class="card-body">
-        <div class="row" id="videoContent">
-            <div class="col-lg-12">
-                <label>{{user.name}}</label>
-                <video id="localVideo" autoplay></video>
-            </div>
-            <div class="col-lg-12">
-                <video id="remoteVideo" autoplay></video>
-            </div>
-        </div>
+  <div class="card-body">
+    <div class="row" id="videoContent">
+
     </div>
+  </div>
 </div>
+<div class="card mt-5">
+  <div class="card-header">Controls</div>
+  <div class="card-body">
+    <button class="btn btn-info" data-mute="mute" id="mute-button">Mute</button>
+    <button class="btn btn-danger" id="hangup-button">Hangup</button>
+    <button class="btn btn-success" onclick="captureScreen()" id="screen-share-button">Screen Share</button>
+  </div>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
 <script>
-    //var conn = new WebSocket('rakesh.projectdemo.in/websockets');
-    var conn = new WebSocket('ws://localhost:3000/websockets');
 
-    conn.onopen = function () {
-        console.log("Connected to the signaling server");
-    };
+  let userId = "{{user._id}}";
+  let roomUsers = {};
+  let localStream = null;
+  let room = {
+    screenStream: null,
+    status: {
+      connected: false,
+      muted: false,
+      smuted: false,
+      vmuted: false,
+      mod: false,
+      streamType: 'camera',
+    }
+  }
+  let html = `<div class="col-lg-4">
+      <div>Name: {{user.name}}</div>
+      <video id="local${userId}" width="100%" muted="muted" class="remote-video-layout" autoplay="true" allowfullscreen showonhover></video>
+      </div>`
+  $('#videoContent').append(html);
+  //const socket = io('https://rakesh.projectdemo.in', {
+  const socket = io({
+    query: {
+      userId: userId
+    }
+  });
 
-    conn.onmessage = function (msg) {
-        var data = JSON.parse(msg.data);
-        console.log(data)
-        switch (data.type) {
-            case "participant-join":
-                addParticipant()
-                break;
-            case "offer":
-                manageOffer(data.offer, data.name)
-                break;
-            case "answer":
-                handleAnswer(data.answer)
-                break;
-            case "candidate":
-                handleCandidate(data.candidate)
-                break;
-        }
+  socket.on("connect", () => {
+    console.log('connected')
+    socket.emit('login', userId, '{{user.meetingId}}', "{{user.name}}");
+  });
+
+  socket.on('admin', function (user, data) {
+    if (userId === user)
+      switch (data) {
+        case 'mod':
+          room.status.mod = true;
+          break;
+        case 'mute':
+          room.status.muted = true;
+          for (var user in roomUsers) {
+            roomUsers[user].pc.removeStream(localStream);
+          }
+          localStream.stop();
+          break;
+        case 'unmute':
+          room.status.muted = false;
+          initStream({
+            'video': true,
+            'audio': true
+          });
+          break;
+      }
+    else
+      switch (data) {
+        case 'mute':
+          roomUsers[user].status.muted = true;
+          break;
+        case 'unmute':
+          roomUsers[user].status.muted = false;
+          break;
+      }
+  });
+
+  socket.on('userList', function (list) {
+    console.log('userList ',list)
+    for (let index = 0; index < list.length; index++) {
+      if (list[index] == userId) {
+        list.splice(index, 1);
+      }
     }
 
-    setTimeout(function () {
-        conn.send(JSON.stringify({ type: "start", userId: '{{user._id}}' }));
-    }, 1500);
-
-    var yourConn;
-    var localVideo = document.querySelector('#localVideo');
-    var remoteVideo = document.querySelector('#remoteVideo');
-    navigator.webkitGetUserMedia({ video: true, audio: true }, function (myStream) {
-        //displaying local video stream on the page 
-        localVideo.srcObject = myStream;
-
-        var configuration = {
-            "iceServers": [{ "url": "stun:stun2.1.google.com:19302" }]
+    if (list.length > 0) {
+      list.map(function (x) {
+        roomUsers[x] = {
+          'pc': '',
+          'streams': [],
+          'dc': {},
+          'stats': {},
+          'status': {
+            'muted': false
+          }
         };
-
-        yourConn = new webkitRTCPeerConnection(configuration);
-
-        // setup stream listening 
-        yourConn.addStream(myStream);
-
-        //when a remote user adds stream to the peer connection, we display it 
-        yourConn.onaddstream = function (e) {
-            remoteVideo.srcObject = e.stream;
-        };
-
-        // Setup ice handling 
-        yourConn.onicecandidate = function (event) {
-            if (event.candidate) {
-                conn.send(JSON.stringify({ type: "candidate", meetingId: '{{user.meetingId}}', userId: '{{user._id}}', candidate: event.candidate }));
-            }
-        };
-    }, function (error) {
-        console.log(error);
+      });
+    }
+    initStream({
+      'video': true,
+      'audio': true
     });
+  });
 
-    function addParticipant() {
-        yourConn.createOffer(function (offer) {
-            console.log(offer);
-            conn.send(JSON.stringify({ type: "offer", meetingId: '{{user.meetingId}}', offer: offer }));
-            yourConn.setLocalDescription(offer);
-        }, function (error) {
-            alert("Error when creating an offer");
+  socket.on('hello', function (from, message, userDisplayName) {
+    console.log("hello ",from);
+    
+    userAdd(from, userDisplayName);
+  });
+
+  socket.on('ice', function (from, data) {
+    if (data) {
+      let rtcCandidate = new RTCIceCandidate(JSON.parse(data));
+      roomUsers[from].pc.addIceCandidate(rtcCandidate);
+    }
+  });
+
+  socket.on('offer', async function (from, data) {
+    if (room.screenStream != null) {
+
+      room.screenStream.getTracks().forEach(track => {
+        roomUsers[from].pc.addTrack(track, room.screenStream);
+      })
+
+    }
+    rtcOffer = new RTCSessionDescription(data);
+    
+    if (data.type === 'offer') {
+
+      await roomUsers[from].pc.setRemoteDescription(new RTCSessionDescription(data));
+      navigator.mediaDevices.getUserMedia({
+        audio: {
+          sampleSize: 16,
+          channelCount: 2,
+          echoCancellation: true
+        },
+        video: {
+          width: 320,
+          height: 240,
+          frameRate: 30
+        }
+      }).then(stream => {
+        stream.getTracks().forEach(track => {
+          roomUsers[from].pc.addTrack(track, stream);
+        })
+
+      })
+        .then(() => roomUsers[from].pc.createAnswer())
+        .then(answer => {
+          roomUsers[from].pc.setLocalDescription(answer);
+          socket.emit('answer', from, answer, "{{user.name}}");
+        })
+    }
+  });
+
+  socket.on('answer', function (from, data, displayUserName) {
+    roomUsers[from].name = displayUserName;
+    roomUsers[from].pc.setRemoteDescription(new RTCSessionDescription(data));
+  });
+
+  function initStream(setting) {
+    let configuration = {}
+    if (setting.video) {
+      configuration.video = {
+        width: 320,
+        height: 240,
+        frameRate: 30
+      }
+    }
+    if (setting.audio) {
+      configuration.audio = {
+        sampleSize: 16,
+        channelCount: 2,
+        echoCancellation: true
+      }
+
+    }
+    navigator.mediaDevices.getUserMedia(configuration).then((stream) => {
+      console.log("local stream created")
+      onMediaSuccess(stream);
+    })
+  }
+
+  function onMediaSuccess(stream) {
+    var oldStream = localStream;
+    localStream = stream;
+    for (var user in roomUsers) {
+      if (roomUsers[user].pc === '') {
+        userAdd(user);
+      }
+      localStream.getTracks().forEach(track => {
+        roomUsers[user].pc.addTrack(track, localStream);
+      })
+
+      call(user);
+    }
+    const videoTag = document.getElementById("local" + userId);
+    videoTag.srcObject = localStream;
+
+  }
+
+  function call(user) {
+    
+    if (typeof (roomUsers[user]) !== 'undefined') {
+      if (!roomUsers[user].dc.channel) {
+        initDC(user, roomUsers[user].pc.createDataChannel('data'));
+      }
+      
+      roomUsers[user].pc.createOffer()
+        .then(offer => {
+          roomUsers[user].pc.setLocalDescription(offer);
+          console.log("offer send ",user)
+          socket.emit('offer', user, offer);
+        })
+        .catch(e => {
+          console.error(e)
         });
     }
+  }
 
+  function initDC(user, channel) { //
+    roomUsers[user].dc = {};
+    roomUsers[user].dc.buffer = [];
+    roomUsers[user].dc.sending = false;
+    roomUsers[user].dc.channel = channel;
 
-    function manageOffer(offer, name) {
-        yourConn.setRemoteDescription(new RTCSessionDescription(offer));
+    channel.onopen = function () { }; //
+    channel.onclose = function () { }; //
+    channel.onerror = function (err) { }; // 
+    // Receiving files
+    channel.onmessage = (data) => {
+      data = JSON.parse(data);
+      users[user].dc.buffer.push(data.message);
 
-        //create an answer to an offer 
-        yourConn.createAnswer(function (answer) {
-            yourConn.setLocalDescription(answer);
-            conn.send(JSON.stringify({ type: "answer", meetingId: '{{user.meetingId}}', answer: answer }));
-
-        }, function (error) {
-            alert("Error when creating an answer");
-        });
-    }
-
-    function handleAnswer(answer) {
-        yourConn.setRemoteDescription(new RTCSessionDescription(answer));
-    }
-
-    function handleCandidate(candidate) {
-        yourConn.addIceCandidate(new RTCIceCandidate(candidate));
+      if (data.last) {
+        var save = document.createElement('a');
+        save.href = roomUsers[user].dc.buffer.join('');
+        save.target = '_blank';
+        save.download = data.name;
+        save.click();
+        var event = document.createEvent('Event');
+        event.initEvent('click', true, true);
+        save.dispatchEvent(event);
+        (window.URL || window.webkitURL).revokeObjectURL(save.href);
+        roomUsers[user].dc.buffer = [];
+      }
     };
+  }
 
+  function userAdd(user, userName) {
 
+    if (user) {
+      roomUsers[user] = {
+        'pc': '',
+        'streams': [],
+        'dc': {},
+        'stats': {},
+        'status': {
+          'muted': false
+        },
+        'name': userName
+      };
+
+      var w = window;
+      var PeerConnection = w.RTCPeerConnection || w.webkitRTCPeerConnection;
+      const configuration = {
+        "iceServers": [{ "url": "stun:stun2.1.google.com:19302" }]
+      };
+      roomUsers[user].pc = new PeerConnection(configuration);
+      console.log("PC connected", user);
+      roomUsers[user].pc.onconnecting = function (message) { };
+      roomUsers[user].pc.onopen = function (message) { };
+
+      roomUsers[user].pc.ontrack = function (track) {
+        console.log("track ", user)
+        if (track.track.kind === 'video' || track.track.kind === 'screen') {
+          if (roomUsers[user].streams.length == 2) {
+            roomUsers[user].streams = [];
+          }
+          roomUsers[user].streams.push(track.streams[0]);
+          updateVideo(user)
+        }
+      };
+
+      roomUsers[user].pc.onremovetrack = function (event) {
+        console.log("onremovetrack ", user)
+        roomUsers[user].streams.splice(roomUsers[user].streams.indexOf(event.stream), 1);
+        updateVideo(user)
+        clearInterval(roomUsers[user].stats.catcher);//todo
+        roomUsers[user].stats = {};
+      };
+
+      roomUsers[user].pc.onremovestream = function (event) {
+        console.log("onremovestream ", user)
+        roomUsers[user].streams.splice(roomUsers[user].streams.indexOf(event.stream), 1);
+        updateVideo(user)
+        clearInterval(roomUsers[user].stats.catcher);
+        roomUsers[user].stats = {};
+      };
+      roomUsers[user].pc.onicecandidate = function (event) {
+        console.log("onicecandidate ", user)
+        if (event.candidate) {
+          console.log("ice send ", user)
+          socket.emit('ice', user, JSON.stringify(event.candidate));
+        }
+      };
+      roomUsers[user].pc.ondatachannel = function (event) {
+        console.log("ondatachannel ", user)
+        if (!roomUsers[user].dc.channel) {
+          initDC(user, event.channel);
+        }
+      };
+    }
+  }
+
+  function updateVideo(user) {
+    if ($(`#remote${user}`).length == 0) {
+      let html = `<div class="col-lg-4"><div>Name: ${roomUsers[user].name}</div><video id="remote${user}" width="100%" class="remote-video-layout" autoplay="true" allowfullscreen showonhover></video></div>`
+      $('#videoContent').append(html);
+    }
+
+    roomUsers[user].streams.map(function (stream) {
+      // alert(roomUsers[user].streams.length);
+      if (roomUsers[user].streams.length == 2) {
+
+        var video1 = roomUsers[user].streams[0];
+        if (video1 == stream) {
+          const videoTag = document.getElementById("remote" + user);
+          videoTag.srcObject = roomUsers[user].streams[0];
+        } else {
+          const SharevideoTag = document.getElementById("remote" + user);
+          SharevideoTag.srcObject = roomUsers[user].streams[1];
+          SharevideoTag.controls = true;
+        }
+      } else {
+        const videoTag = document.getElementById("remote" + user);
+        videoTag.srcObject = roomUsers[user].streams[0];
+      }
+      return stream
+    })
+  }
+
+  function admin(op, user) {
+    if (user == userId) {
+      switch (op) {
+        case "smute":
+          room.status.smuted = !room.status.smuted;
+          localStream.getTracks().forEach(function (track) {
+            //track.enabled = !room.status.smuted;
+            var track = localStream.getAudioTracks()[0];
+            track.enabled = !room.status.smuted;
+            
+          });
+          break;
+        case "vmute":
+          room.status.vmuted = !room.status.vmuted;
+          localStream.getVideoTracks().forEach(function (track) {
+            track.enabled = !room.status.vmuted;
+          });
+          break;
+        case 'share':
+          for (var user in roomUsers) {
+            var sharestream = roomUsers[user].streams[1];
+            
+            roomUsers[user].pc.removeStream(sharestream);
+            
+            call(user);
+            
+            
+          }
+        case 'endCall':
+          const tracks = localStream.getTracks();
+          if (tracks != null) {
+            tracks.forEach(function (track) {
+              track.stop();
+            });
+          }
+          room.socket.emit('endCall', user);
+          window.location.href = window.location.origin;
+          break;
+      }
+    } else {
+      room.socket.emit('admin', user, op);
+    }
+  }
+
+  $("#mute-button").on("click", function () {
+    admin("smute", userId);
+    if ($(this).data('mute') == "mute") {
+      $("#mute-button").data('mute', 'unmute')
+      $("#mute-button").text("Unmute")
+    } else {
+      $("#mute-button").text("Mute")
+      $("#mute-button").data('mute', 'mute')
+    }
+  });
+
+  async function captureScreen() {
+    let mediaStream = null;
+    
+    try {
+        /**
+         * We are setting audio: false here because we don't want desktop audio,
+         * we want audio from user's microphone
+         * */
+        mediaStream = await navigator.mediaDevices.getDisplayMedia({
+            video: {
+                cursor: "always",
+                displaySurface: "monitor",
+                logicalSurface: false
+            },
+            audio: false
+        });
+        for(user in roomUsers){
+         //roomUsers[user].pc.replaceTrack(mediaStream)
+         
+        }
+        //document.getElementById("local-video").srcObject = mediaStream;
+    } catch (ex) {
+        
+    }
+}
 </script>
-
-{{#if isParticipant}}
-<script>
-    setTimeout(function () {
-        conn.send(JSON.stringify({ type: "participant-join", meetingId: '{{user.meetingId}}' }));
-    }, 1500);
-</script>
-{{/if}}

@@ -1,58 +1,25 @@
-// Import the WebSocket library
-import { WebSocketServer } from 'ws';
-import users from '../models/users.js';
+import {Server} from "socket.io";
+import socketClient from "./socketEvent.js";
 // Define a function named socketIO that takes a server object as a parameter.
-export default async (expressServer) => {
-    let userData = {};
-    const websocketServer = new WebSocketServer({
-        noServer: true,
-        path: "/websockets",
-    });
+export default function(server) {
+	// Create a new instance of the Socket.io server and store it in the global context as io.
+	global.io = new Server(server);
+	// Initialize a Map named connectedSockets to keep track of connected sockets.
+	global.connectedSockets = new Map();
 
-    expressServer.on("upgrade", (request, socket, head) => {
-        websocketServer.handleUpgrade(request, socket, head, (websocket) => {
-            websocketServer.emit("connection", websocket, request);
-        });
-    });
+	// Register an event handler for the "connection" event, which is triggered when a client connects to the WebSocket server.
+	io.on("connection", (socket) => {
+		// Within the "connection" event handler:
 
-    websocketServer.on("connection", function connection(websocketConnection, connectionRequest) {
-        console.log("websocket connected");
-        websocketConnection.on("message", async (message) => {
-            let data = JSON.parse(message);
-            console.log(data);
-            switch (data.type) {
-                case "start":
-                    userData[data.userId] = websocketConnection;
-                    websocketConnection.name = data.userId;
-                    break;
+		// Retrieve the userId from the query parameters of the WebSocket handshake.
+		const userId = socket.handshake.query.userId;
+		if (userId) {
+			// Check if the connectedSockets Map doesn't have an entry for the userId.
+			connectedSockets.set(userId, socket.id);
+		}
+        socketClient(socket)
 
-                case "participant-join":
-                    {
-                        let userOwner = await users.findOne({ meetingId: data.meetingId, type: 'owner' }).lean();
-                        userData[userOwner._id.toString()].send(JSON.stringify({ type: 'participant-join' }))
-                        break;
-                    }
-                case "offer":
-                    {
-                        let userParticipant = await users.findOne({ meetingId: data.meetingId, type: 'participant' }).lean();
-                        userData[userParticipant._id.toString()].send(JSON.stringify({ type: 'offer', offer: data.offer }))
-                        break;
-                    }
-                case "answer":
-                    {
-                        let userOwner = await users.findOne({ meetingId: data.meetingId, type: 'owner' }).lean();
-                        userData[userOwner._id.toString()].send(JSON.stringify({ type: 'answer', answer: data.answer }))
-                        break;
-                    }
-                case "candidate":
-                    {
-                        let user = await users.findOne({ meetingId: data.meetingId, _id: { $ne: data.userId } }).lean();
-                        userData[user._id.toString()].send(JSON.stringify({ type: "candidate", candidate: data.candidate }))
-                        break;
-                    }
-            }
-        });
-    });
-
-    return websocketServer;
+		// Log a message indicating that a WebSocket connection has been established.
+		console.log("SocketIO Connected.");
+	});
 };

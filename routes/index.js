@@ -15,7 +15,6 @@ router.post('/', async (req, res, next) => {
     meetingId: uuidv4(),
     type: 'owner'
   });
-  console.log(user)
   res.redirect(`/meeting/${user._id}`);
 });
 
@@ -23,8 +22,16 @@ router.get('/meeting/:userId', async (req, res, next) => {
   let user = await users.findOne({
     _id: req.params.userId
   }).lean();
-  console.log(user)
+
   res.render('meeting', { user, isParticipant: (user.type == 'participant' ? true : false) });
+});
+
+router.get('/new/:userId', async (req, res, next) => {
+  let user = await users.findOne({
+    _id: req.params.userId
+  }).lean();
+
+  res.render('new', { user, isParticipant: (user.type == 'participant' ? true : false) });
 });
 
 
