@@ -10,13 +10,6 @@ export default function(server) {
 	// Register an event handler for the "connection" event, which is triggered when a client connects to the WebSocket server.
 	io.on("connection", (socket) => {
 		// Within the "connection" event handler:
-
-		// Retrieve the userId from the query parameters of the WebSocket handshake.
-		const userId = socket.handshake.query.userId;
-		if (userId) {
-			// Check if the connectedSockets Map doesn't have an entry for the userId.
-			connectedSockets.set(userId, socket.id);
-		}
         socketClient(socket)
 
 		// Log a message indicating that a WebSocket connection has been established.

@@ -3,7 +3,6 @@ global.meetings = {};
 import users from '../models/users.js';
 export default function (socket) {
     socket.on('login', function (user, room, displayName) {
-        console.log("login successfully ", displayName)
 
         if (meetings[room] === undefined) {
             meetings[room] = {};
@@ -15,16 +14,12 @@ export default function (socket) {
             }
         }
         meetings[room][user] = socket.id;
-        console.log(meetings[room]);
-
 
         socket.on('offer', function (to, data) {
-            console.log("offer send to ", to);
             if (meetings[room][to] !== undefined) {
                 io.to(meetings[room][to]).emit('offer', user, data, displayName);
             }
         });
-
 
         socket.on('answer', function (to, data) {
             if (meetings[room][to] !== undefined) {
@@ -51,51 +46,15 @@ export default function (socket) {
                     io.to(meetings[room][to]).emit('bye', user);
                 }
             }
-            // await users.deleteOne({
-            //     _id: user
-            // });
+            await users.deleteOne({
+                _id: user
+            });
             delete meetings[room][user];
         });
-
-
-
-        // if (meetingRooms[room] === undefined) {
-        //     meetingRooms[room] = {
-        //         'userList': {},
-        //         'mod': [user],
-        //         'ban': [],
-        //         'mute': []
-        //     };
-        //     // socket.emit('admin', user, 'mod'); //ToDo
-        // }
-
-        // socket.room = room;
-        // socket.user = user;
-        // socket.emit('userList', Object.keys(meetingRooms[room].userList));
-
-        // for (var to in meetingRooms[room].userList) {
-        //     io.to(meetingRooms[room].userList[to]).emit('hello', user, "", displayName);
-        // }
-
-        // meetingRooms[room].userList[user] = socket.id;
-
-        // socket.on('ice', function (to, data) {
-        //     if (meetingRooms[room].userList[to] !== undefined) {
-        //         io.to(meetingRooms[room].userList[to]).emit('ice', user, data, displayName);
-        //     }
-        // });
-
-        // socket.on('offer', function (to, data) {
-        //     if (meetingRooms[room].userList[to] !== undefined) {
-        //         io.to(meetingRooms[room].userList[to]).emit('offer', user, data, displayName);
-        //     }
-        // });
-
-        // socket.on('answer', function (to, data, userDisplayName) {
-        //     if (meetingRooms[room].userList[to] !== undefined) {
-        //         io.to(meetingRooms[room].userList[to]).emit('answer', user, data, userDisplayName);
-        //     }
-        // });
-
+        socket.on('timeout', async function () {
+            for (let to in meetings[room]) {
+                io.to(meetings[room][to]).emit('dis', user);
+            }
+        });
     });
 };
