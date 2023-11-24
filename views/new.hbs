@@ -1,39 +1,27 @@
-<label>/join/{{user.meetingId}}</label>
-<div class="card mt-5">
+<div class="card">
 	<div class="card-body">
+		<div class="row" id="screenShareContent">
+		</div>
 		<div class="row" id="videoContent">
-			<div class="col-lg-4">
+			<div class="col-lg-4 videoSection">
 				<div>Name: {{user.name}}</div>
-				<video id="local{{user._id}}" width="100%" muted="muted" playsinline autoplay="true" allowfullscreen
-					showonhover></video>
+				<video id="local{{user._id}}" class="remote-video-layout" width="100%" muted="muted" playsinline
+					autoplay="true" allowfullscreen showonhover></video>
 			</div>
 		</div>
 	</div>
 </div>
-<div class="card mt-5">
-	<div class="card-header">Controls</div>
-	<div class="card-body">
-		<button class="btn btn-info" data-mute="mute" id="mute-button">Mute</button>
-		<button class="btn btn-danger" id="hangup-button">Hangup</button>
-		<button class="btn btn-success" onclick="captureScreen()" id="screen-share-button">Screen Share</button>
-	</div>
-</div>
-
+<input type="hidden" value="{{domain}}/join/{{user.meetingId}}" id="linkData">
 <script src="/socket.io/socket.io.js"></script>
 <script>
 
 	let userId = "{{user._id}}";
-	let userName = "{{user.name}}"
 	let roomUsers = {};
 	let localStream = null;
-	let oldLocalStream = null;
-	let room = {
-		screenStream: null
-	}
+	let screenShareStream = null;
 
 
-	
-	const socket = io({
+	const socket = io("{{domain}}", {
 		query: {
 			userId: userId
 		}
@@ -49,7 +37,7 @@
 		roomUsers[user] = {
 			pc: "",
 			name: "",
-			stream: ""
+			stream: []
 		};
 		console.log("new user make call ", user);
 		makeCall(user, true);
@@ -61,7 +49,8 @@
 				console.log("existingUser ", user)
 				roomUsers[user] = {
 					pc: "",
-					name: ""
+					name: "",
+					stream: []
 				};
 			}
 		}
@@ -96,11 +85,22 @@
 			}
 		});
 		roomUsers[user].pc.addEventListener('track', async (event) => {
+			console.log(event.track)
 			console.log("remote stream ", user)
-			const [remoteStream] = event.streams;
-			roomUsers[user].stream = remoteStream;
-			updateVideo(user);
+			if (event.track.kind == "video") {
+				const [remoteStream] = event.streams;
+				roomUsers[user].stream.push(remoteStream);
+				updateVideo(user);
+			}
 		});
+		roomUsers[user].pc.addEventListener('removetrack', async (event) => {
+			console.log(event.track)
+			console.log("remove track ", user)
+		})
+		roomUsers[user].pc.addEventListener('removestream', async (event) => {
+			console.log(event.track)
+			console.log("remove stream ", user)
+		})
 		roomUsers[user].pc.addEventListener('connectionstatechange', event => {
 			if (roomUsers[user].pc.connectionState === 'connected') {
 				console.log("peer connection started")
@@ -120,9 +120,9 @@
 
 	socket.on('offer', async function (from, data, displayName) {
 		try {
-			if (room.screenStream != null) {
-				room.screenStream.getTracks().forEach(track => {
-					roomUsers[from].pc.addTrack(track, room.screenStream);
+			if (screenShareStream != null) {
+				screenShareStream.getTracks().forEach(track => {
+					roomUsers[from].pc.addTrack(track, screenShareStream);
 				})
 			}
 			console.log("receive offer ", from)
@@ -156,15 +156,41 @@
 		}
 	})
 
+	socket.on('bye', function (from) {
+		if (roomUsers[from]) {
+			delete roomUsers[from];
+			$(`#remote${from}`).parent().remove();
+		}
+	});
+
+	socket.on("screenStop", function (by) {
+		$('#screenShareContent').html("");
+		$('.videoSection').removeClass('col-lg-2').addClass('col-lg-4');
+	})
 	//start stream
 
 	function updateVideo(user) {
 		if ($(`#remote${user}`).length == 0) {
-			let html = `<div class="col-lg-4"><div>Name: ${roomUsers[user].name}</div><video id="remote${user}" width="100%" class="remote-video-layout" autoplay="true" allowfullscreen showonhover></video></div>`
+			let html = `<div class="col-lg-4 videoSection"><div>Name: ${roomUsers[user].name}</div><video id="remote${user}" width="100%" class="remote-video-layout" autoplay="true" playsinline allowfullscreen showonhover></video></div>`
 			$('#videoContent').append(html);
 		}
-		const videoTag = document.getElementById("remote" + user);
-		videoTag.srcObject = roomUsers[user].stream;
+		console.log('update video ', user);
+		console.log(roomUsers[user].stream);
+		for (let i in roomUsers[user].stream) {
+			if (i == 0) {
+				const videoTag = document.getElementById("remote" + user);
+				videoTag.srcObject = roomUsers[user].stream[i];
+			} else {
+				if ($(`#share${user}`).length == 0) {
+					$('.videoSection').removeClass('col-lg-4').addClass('col-lg-2')
+					let html = `<div class="col-lg-12"><div>Name: Screen Share by ${roomUsers[user].name}</div><video id="share${user}" width="100%" class="screen-share" autoplay="true" playsinline allowfullscreen showonhover></video></div>`
+					$('#screenShareContent').append(html);
+					const shareTag = document.getElementById("share" + user);
+					shareTag.srcObject = roomUsers[user].stream[i];
+					console.log(roomUsers[user].stream[i].getVideoTracks())
+				}
+			}
+		}
 	}
 
 
@@ -172,11 +198,26 @@
 		if ($(this).data('mute') == "mute") {
 			localStream.getAudioTracks()[0].enabled = false
 			$("#mute-button").data('mute', 'unmute')
-			$("#mute-button").text("Unmute")
+			$("#mute-button").html('<i class="fa-solid fa-microphone-slash"></i>')
 		} else {
 			localStream.getAudioTracks()[0].enabled = true
 			$("#mute-button").text("Mute")
 			$("#mute-button").data('mute', 'mute')
+			$("#mute-button").html('<i class="fa-solid fa-microphone"></i>')
+		}
+	});
+
+
+	$("#stop-video-button").on("click", function () {
+		if ($(this).data('mute') == "mute") {
+			localStream.getVideoTracks()[0].enabled = false
+			$("#stop-video-button").data('mute', 'unmute')
+			$("#stop-video-button").html('<i class="fa-solid fa-video-slash"></i>')
+		} else {
+			localStream.getVideoTracks()[0].enabled = true
+			$("#stop-video-button").text("Mute")
+			$("#stop-video-button").data('mute', 'mute')
+			$("#stop-video-button").html('<i class="fa-solid fa-video"></i>')
 		}
 	});
 
@@ -184,59 +225,76 @@
 		let mediaStream = null;
 
 		try {
-			/**
-			 * We are setting audio: false here because we don't want desktop audio,
-			 * we want audio from user's microphone
-			 * */
-			mediaStream = await navigator.mediaDevices.getDisplayMedia({
-				video: {
-					cursor: "always",
-					displaySurface: "monitor",
-					logicalSurface: false
-				},
-				audio: false
-			});
-			normalStream = await navigator.mediaDevices.getUserMedia({
-				video: {
-					width: 320,
-					height: 240,
-					frameRate: 30
-				},
-				audio: {
-					sampleSize: 16,
-					channelCount: 2,
-					echoCancellation: true
-				}
-			})
-			onMediaSuccessShare(mediaStream, normalStream)
-			//document.getElementById("local-video").srcObject = mediaStream;
+			if ($("#screen-share-button") == "start") {
+				$("#screen-share-button").data("stop");
+				/**
+				 * We are setting audio: false here because we don't want desktop audio,
+				 * we want audio from user's microphone
+				 * */
+				mediaStream = await navigator.mediaDevices.getDisplayMedia({
+					video: {
+						cursor: "always",
+						displaySurface: "monitor",
+						logicalSurface: false
+					},
+					audio: false
+				});
+				mediaStream.getVideoTracks()[0].addEventListener('ended', () => {
+					console.log("stopped")
+					socket.emit('screenStop', user);
+					$("#screen-share-button").html('<i class="fa-solid fa-display"></i>');
+				});
+				onMediaSuccessShare(mediaStream);
+			} else {
+				await screenShareStream.stopVideo();
+				$("#screen-share-button").data("start");
+				$("#screen-share-button").html('<i class="fa-solid fa-display"></i>');
+			}
 		} catch (ex) {
 			console.log(ex);
 		}
 	}
 
 
-	async function onMediaSuccessShare(stream, normalStream) {
-		let screenStream = room.screenStream;
-		room.screenStream = stream;
-		console.log("share screen", room.screenStream);
+	async function onMediaSuccessShare(stream) {
+		//let screenStream = screenShareStream;
+		screenShareStream = stream;
+		console.log("share screen", screenShareStream);
 
 		for (let user in roomUsers) {
-			if (screenStream) {
-				roomUsers[user].pc.removeStream(screenStream);
+			//if (screenStream) {
+			//	roomUsers[user].pc.removeStream(screenStream);
+			//}
+			for (const track of screenShareStream.getVideoTracks()) {
+				roomUsers[user].pc.addTrack(track, screenShareStream);
 			}
-			for (const track of room.screenStream.getVideoTracks()) {
-				roomUsers[user].pc.addTrack(track, room.screenStream);
-			}
-			for (const track of normalStream.getAudioTracks()) {
-				roomUsers[user].pc.addTrack(track, room.screenStream);
-			}
-
 			const offer = await roomUsers[user].pc.createOffer();
 			await roomUsers[user].pc.setLocalDescription(offer);
 			console.log("send screen offer ", user)
 			socket.emit('offer', user, offer);
 		}
+		$("#screen-share-button").html('<i class="fa-solid fa-circle-stop"></i>');
 	}
 
+	function hangup() {
+		localStream.getTracks().forEach(track => track.stop());
+		window.location.href = "/"
+	}
+
+	function copyLink() {
+		// Get the text field
+		var copyText = document.getElementById("linkData");
+
+		// Select the text field
+		copyText.select();
+
+		// Copy the text inside the text field
+		navigator.clipboard.writeText(copyText.value);
+		$(".copy-link").css("background", "#86f3d0");
+		$("#copy-link").html('<i class="fa-solid fa-right"></i>');
+		setTimeout(function () {
+			$(".copy-link").css("background", "#13af7d");
+			$("#copy-link").html('<i class="fa-solid fa-copy"></i>');
+		}, 400)
+	}
 </script>

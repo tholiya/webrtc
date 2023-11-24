@@ -1,3 +1,7 @@
+if (process.version !== 'v18.18.1') {
+  console.log('Node version must be v18.18.1');
+  process.exit(1);
+}
 import createError from 'http-errors';
 import express from 'express';
 import cookieParser from 'cookie-parser';
@@ -22,11 +26,11 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 app.use(cookieParser());
 app.use(express.static(`${process.cwd()}/public`));
-app.use('/bcss',express.static(`${process.cwd()}/node_modules/bootstrap/dist/css`));
+app.use('/bcss', express.static(`${process.cwd()}/node_modules/bootstrap/dist`));
 
 app.use('/', indexRouter);
 app.use('/users', usersRouter);
-app.get('/favicon.ico',function(req, res, next){
+app.get('/favicon.ico', function (req, res, next) {
   res.send('ok')
 });
 

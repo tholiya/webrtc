@@ -1,5 +1,6 @@
 global.meetingRooms = {};
 global.meetings = {};
+import users from '../models/users.js';
 export default function (socket) {
     socket.on('login', function (user, room, displayName) {
         console.log("login successfully ", displayName)
@@ -37,16 +38,24 @@ export default function (socket) {
             }
         });
 
-
-
-
-
-
-
-
-
-
-
+        socket.on("screenStop", function (by) {
+            for (let to in meetings[room]) {
+                if (to != user) {
+                    io.to(meetings[room][to]).emit('screenStop', by);
+                }
+            }
+        });
+        socket.on('disconnect', async function () {
+            for (let to in meetings[room]) {
+                if (to != user) {
+                    io.to(meetings[room][to]).emit('bye', user);
+                }
+            }
+            // await users.deleteOne({
+            //     _id: user
+            // });
+            delete meetings[room][user];
+        });
 
 
 
@@ -63,7 +72,7 @@ export default function (socket) {
         // socket.room = room;
         // socket.user = user;
         // socket.emit('userList', Object.keys(meetingRooms[room].userList));
-        
+
         // for (var to in meetingRooms[room].userList) {
         //     io.to(meetingRooms[room].userList[to]).emit('hello', user, "", displayName);
         // }

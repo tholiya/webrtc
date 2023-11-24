@@ -1,13 +1,76 @@
 <!DOCTYPE html>
 <html>
-  <head>
-    <title>{{title}}</title>
-    <link rel='stylesheet' href='/bcss/bootstrap.min.css' />
-    <script src="https://code.jquery.com/jquery-3.7.1.min.js" integrity="sha256-/JqT3SQfawRcv/BIHPThkBvs0OEvtFFmqPF/lYI/Cxo=" crossorigin="anonymous"></script>
-  </head>
-  <body>
-    <div class="container pt-5">
+
+<head>
+  <title>{{title}}</title>
+  <link rel='stylesheet' href='/bcss/css/bootstrap.min.css' />
+  <script src="https://code.jquery.com/jquery-3.7.1.min.js" integrity="sha256-/JqT3SQfawRcv/BIHPThkBvs0OEvtFFmqPF/lYI/Cxo=" crossorigin="anonymous"></script>
+  <link rel="stylesheet" href="/javascripts/fontawesome/css/all.min.css">
+  <script src="/bcss/js/bootstrap.bundle.js"></script>
+  <style>
+    .icon-bar {
+      position: fixed;
+      top: 50%;
+      -webkit-transform: translateY(-50%);
+      -ms-transform: translateY(-50%);
+      transform: translateY(-50%);
+    }
+
+    .icon-bar button {
+      display: block;
+      text-align: center;
+      padding: 16px;
+      transition: all 0.3s ease;
+      color: white;
+      font-size: 20px;
+      height: 60px;
+      width: 60px;
+      border: none;
+    }
+
+    .screen-share {
+      background: #007bb5;
+      color: white;
+    }
+    .mute {
+      background: #272829;
+      color: white;
+    }
+
+    .hangup {
+      background: #bb0000;
+      color: white;
+    }
+
+    .video-stop {
+      background: #da0df3;
+      color: white;
+    }
+    .copy-link {
+      background: #13af7d;
+      color: white;
+    }
+  </style>
+</head>
+
+<body>
+  {{#if user}}
+  <div class="icon-bar">
+    <button class="copy-link" data-toggle="tooltip" data-placement="right" title="Copy Meeting URL" onclick="copyLink()"><i class="fa-solid fa-copy"></i></button>
+    <button class="mute" data-toggle="tooltip" data-placement="right" title="Mute/Unmute" data-mute="mute" id="mute-button"><i class="fa-solid fa-microphone"></i></button>
+    <button class="video-stop" data-toggle="tooltip" data-placement="right" title="Play/Pause" data-mute="mute" id="stop-video-button"><i class="fa-solid fa-video"></i></button>
+    <button class="screen-share" data-toggle="tooltip" data-placement="right" title="Screen share" onclick="captureScreen()" id="screen-share-button" data-share="start"><i class="fa-solid fa-display"></i></button>
+    <button class="hangup" data-toggle="tooltip" data-placement="right" title="Hangup" id="hangup-button" onclick="hangup()"><i class="fa fa-phone"></i></button>
+  </div>
+  {{/if}}
+  <div class="container pt-3">
     {{{body}}}
-    </div>
-  </body>
+    <script>
+      $(function () {
+        $('[data-toggle="tooltip"]').tooltip()
+      })
+    </script>
+  </div>
+</body>
+
 </html>

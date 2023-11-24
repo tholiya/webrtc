@@ -1,10 +1,11 @@
 import express from 'express';
 import users from '../models/users.js';
-import { v4 as uuidv4 } from 'uuid';
+import { customAlphabet } from 'nanoid'
+const nanoid = customAlphabet('1234567890abcdefghijklmnopqrstuvwxyz', 10)
 const router = express.Router();
 
 /* GET home page. */
-router.get('/', (req, res, next) => {
+router.get('/', (req, res, next) => {  
   res.render('index');
 });
 
@@ -12,26 +13,25 @@ router.get('/', (req, res, next) => {
 router.post('/', async (req, res, next) => {
   let user = await users.create({
     name: req.body.name,
-    meetingId: uuidv4(),
+    meetingId: `${nanoid(4)}-${nanoid(3)}-${nanoid(4)}`,
     type: 'owner'
   });
-  res.redirect(`/meeting/${user._id}`);
+  res.redirect(`/meeting/${user._id}/${user.meetingId}`);
 });
 
-router.get('/meeting/:userId', async (req, res, next) => {
+router.get('/meeting/:userId/:meetingId', async (req, res, next) => {
   let user = await users.findOne({
-    _id: req.params.userId
+    _id: req.params.userId,
+    meetingId: req.params.meetingId
   }).lean();
-
-  res.render('meeting', { user, isParticipant: (user.type == 'participant' ? true : false) });
-});
-
-router.get('/new/:userId', async (req, res, next) => {
-  let user = await users.findOne({
-    _id: req.params.userId
-  }).lean();
-
-  res.render('new', { user, isParticipant: (user.type == 'participant' ? true : false) });
+  if (user) {
+    res.render('meeting', {
+      domain: process.env.DOMAIN,
+      user
+    });
+  } else {
+    res.redirect("/");
+  }
 });
 
 
@@ -45,7 +45,7 @@ router.post('/join/:meetingId', async (req, res, next) => {
     meetingId: req.params.meetingId,
     type: 'participant'
   });
-  res.redirect(`/meeting/${user._id}`);
+  res.redirect(`/meeting/${user._id}/${user.meetingId}`);
 });
 
 export default router;
