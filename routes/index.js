@@ -20,18 +20,20 @@ router.post('/', async (req, res, next) => {
 });
 
 router.get('/meeting/:userId/:meetingId', async (req, res, next) => {
-  let user = await users.findOne({
-    _id: req.params.userId,
-    meetingId: req.params.meetingId
-  }).lean();
-  if (user) {
-    res.render('meeting', {
-      domain: process.env.DOMAIN,
-      user
-    });
-  } else {
-    res.redirect("/");
-  }
+  setTimeout(async function () {
+    let user = await users.findOne({
+      _id: req.params.userId,
+      meetingId: req.params.meetingId
+    }).lean();
+    if (user) {
+      res.render('meeting', {
+        domain: process.env.DOMAIN,
+        user
+      });
+    } else {
+      res.redirect("/");
+    }
+  }, 3000);
 });
 
 
