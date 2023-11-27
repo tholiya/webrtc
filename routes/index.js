@@ -1,6 +1,7 @@
 import express from 'express';
 import users from '../models/users.js';
 import { customAlphabet } from 'nanoid'
+import moment from moment;
 const nanoid = customAlphabet('1234567890abcdefghijklmnopqrstuvwxyz', 10)
 const router = express.Router();
 
@@ -14,26 +15,32 @@ router.post('/', async (req, res, next) => {
   let user = await users.create({
     name: req.body.name,
     meetingId: `${nanoid(4)}-${nanoid(3)}-${nanoid(4)}`,
-    type: 'owner'
+    type: 'owner',
+    count: 0
   });
   res.redirect(`/meeting/${user._id}/${user.meetingId}`);
 });
 
 router.get('/meeting/:userId/:meetingId', async (req, res, next) => {
-  setTimeout(async function () {
-    let user = await users.findOne({
-      _id: req.params.userId,
-      meetingId: req.params.meetingId
-    }).lean();
-    if (user) {
-      res.render('meeting', {
-        domain: process.env.DOMAIN,
-        user
-      });
-    } else {
-      res.redirect("/");
-    }
-  }, 3000);
+  await users.updateOne({
+    _id: req.params.userId,
+    meetingId: req.params.meetingId
+  }, { count: { $inc: 1 } });
+  let user = await users.findOne({
+    _id: req.params.userId,
+    meetingId: req.params.meetingId
+  }).lean();
+  if (user && user.count <= 1) {
+    res.render('meeting', {
+      domain: process.env.DOMAIN,
+      user
+    });
+  } else {
+    await users.deleteOne({
+      _id: req.params.userId
+    });
+    res.redirect("/");
+  }
 });
 
 

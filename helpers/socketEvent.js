@@ -46,9 +46,6 @@ export default function (socket) {
                     io.to(meetings[room][to]).emit('bye', user);
                 }
             }
-            await users.deleteOne({
-                _id: user
-            });
             delete meetings[room][user];
         });
         socket.on('timeout', async function () {
