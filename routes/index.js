@@ -1,7 +1,6 @@
 import express from 'express';
 import users from '../models/users.js';
 import { customAlphabet } from 'nanoid'
-import moment from moment;
 const nanoid = customAlphabet('1234567890abcdefghijklmnopqrstuvwxyz', 10)
 const router = express.Router();
 
