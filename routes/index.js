@@ -24,7 +24,7 @@ router.get('/meeting/:userId/:meetingId', async (req, res, next) => {
   await users.updateOne({
     _id: req.params.userId,
     meetingId: req.params.meetingId
-  }, { count: { $inc: 1 } });
+  }, { $inc: { count: 1 } });
   let user = await users.findOne({
     _id: req.params.userId,
     meetingId: req.params.meetingId

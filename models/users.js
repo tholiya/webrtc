@@ -31,6 +31,9 @@ const userSchema = new mongoose.Schema({
     },
     meetingId:{
         type: String
+    },
+    count:{
+        type: Number
     }
 }, {
     timestamps: true,
